@@ -438,12 +438,20 @@ async function initializeDatabase() {
       profession TEXT,
       professionalTitle TEXT,
       desiredTracks TEXT, -- JSON string array
+      surplusSkills TEXT, -- JSON string array
       submittedAt TEXT NOT NULL,
       role TEXT DEFAULT 'user',
       level TEXT DEFAULT 'Graduate Node',
       points INTEGER DEFAULT 10
     );
   `);
+  try {
+    await db.exec("ALTER TABLE users ADD COLUMN surplusSkills TEXT DEFAULT '[]';");
+  } catch (e) {
+    if (!String(e?.message || e).includes("duplicate column")) {
+      throw e;
+    }
+  }
   await db.exec(`
     CREATE TABLE IF NOT EXISTS courses (
       id TEXT PRIMARY KEY,
@@ -518,6 +526,7 @@ async function initializeDatabase() {
         profession: "Senior Firmware Architect",
         professionalTitle: "Director of Embedded Robotics",
         desiredTracks: JSON.stringify(["Mentor_Track", "Growth_Track"]),
+        surplusSkills: JSON.stringify(["Outputs_Professional", "Outputs_Space"]),
         submittedAt: "2026-06-01T10:44:00Z",
         role: "user",
         level: "Silicon Expert Node",
@@ -534,6 +543,7 @@ async function initializeDatabase() {
         profession: "Mathematical Computing Lecturer",
         professionalTitle: "Research Fellow, UCL Knowledge Lab",
         desiredTracks: JSON.stringify(["Growth_Track", "Prosumer_Track"]),
+        surplusSkills: JSON.stringify(["Outputs_Mentoring", "Outputs_Professional"]),
         submittedAt: "2026-06-02T14:12:30Z",
         role: "user",
         level: "Academic Research Leader Node",
@@ -550,6 +560,7 @@ async function initializeDatabase() {
         profession: "AI Hardware Student Maker",
         professionalTitle: "Youth Lead Team Lead",
         desiredTracks: JSON.stringify(["Mentee_Track", "Mentor_Track"]),
+        surplusSkills: JSON.stringify(["Outputs_Mentoring", "Outputs_Cross_Support"]),
         submittedAt: "2026-06-02T22:15:22Z",
         role: "user",
         level: "Junior STEM Maker Node",
@@ -558,9 +569,9 @@ async function initializeDatabase() {
     ];
     for (const u of sampleUsers) {
       await db.run(
-        `INSERT INTO users (id, fullName, email, password, country, city, neighborhood, profession, professionalTitle, desiredTracks, submittedAt, role, level, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [u.id, u.fullName, u.email, u.password, u.country, u.city, u.neighborhood, u.profession, u.professionalTitle, u.desiredTracks, u.submittedAt, u.role, u.level, u.points]
+        `INSERT INTO users (id, fullName, email, password, country, city, neighborhood, profession, professionalTitle, desiredTracks, surplusSkills, submittedAt, role, level, points)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [u.id, u.fullName, u.email, u.password, u.country, u.city, u.neighborhood, u.profession, u.professionalTitle, u.desiredTracks, u.surplusSkills, u.submittedAt, u.role, u.level, u.points]
       );
     }
   }
@@ -613,7 +624,8 @@ async function startServer() {
       }
       const resUser = {
         ...user,
-        desiredTracks: safeJsonArray(user.desiredTracks)
+        desiredTracks: safeJsonArray(user.desiredTracks),
+        surplusSkills: safeJsonArray(user.surplusSkills)
       };
       res.json(resUser);
     } catch (e) {
@@ -630,7 +642,8 @@ async function startServer() {
         neighborhood = "",
         profession = "",
         professionalTitle = "",
-        desiredTracks = []
+        desiredTracks = [],
+        surplusSkills = []
       } = req.body || {};
       const emailLower = String(email || "").trim().toLowerCase();
       if (!emailLower) {
@@ -650,13 +663,14 @@ async function startServer() {
       const cleanProfession = String(profession).trim();
       const cleanProfessionalTitle = String(professionalTitle).trim() || "STEM Participant";
       const cleanDesiredTracks = Array.isArray(desiredTracks) ? desiredTracks : [];
+      const cleanSurplusSkills = Array.isArray(surplusSkills) ? surplusSkills : [];
       const id = "cf-" + Date.now();
       const defaultPassword = emailLower.split("@")[0] || "password123";
       const submittedAt = (/* @__PURE__ */ new Date()).toISOString();
       let level = "Graduate Node Member";
       await db.run(
-        `INSERT INTO users (id, fullName, email, password, country, city, neighborhood, profession, professionalTitle, desiredTracks, submittedAt, role, level, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO users (id, fullName, email, password, country, city, neighborhood, profession, professionalTitle, desiredTracks, surplusSkills, submittedAt, role, level, points)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           cleanFullName,
@@ -668,6 +682,7 @@ async function startServer() {
           cleanProfession,
           cleanProfessionalTitle,
           JSON.stringify(cleanDesiredTracks),
+          JSON.stringify(cleanSurplusSkills),
           submittedAt,
           "user",
           level,
@@ -677,7 +692,8 @@ async function startServer() {
       const registeredUser = await db.get("SELECT * FROM users WHERE id = ?", [id]);
       const responseUser = {
         ...registeredUser,
-        desiredTracks: safeJsonArray(registeredUser?.desiredTracks)
+        desiredTracks: safeJsonArray(registeredUser?.desiredTracks),
+        surplusSkills: safeJsonArray(registeredUser?.surplusSkills)
       };
       await queueEmail(
         emailLower,
@@ -713,7 +729,8 @@ async function startServer() {
       const updatedUser = await db.get("SELECT * FROM users WHERE id = ?", [id]);
       const resUser = {
         ...updatedUser,
-        desiredTracks: safeJsonArray(updatedUser?.desiredTracks)
+        desiredTracks: safeJsonArray(updatedUser?.desiredTracks),
+        surplusSkills: safeJsonArray(updatedUser?.surplusSkills)
       };
       res.json(resUser);
     } catch (e) {
@@ -725,7 +742,8 @@ async function startServer() {
       const users = await db.all("SELECT * FROM users ORDER BY submittedAt DESC");
       const parsedUsers = users.map((u) => ({
         ...u,
-        desiredTracks: safeJsonArray(u?.desiredTracks)
+        desiredTracks: safeJsonArray(u?.desiredTracks),
+        surplusSkills: safeJsonArray(u?.surplusSkills)
       }));
       res.json(parsedUsers);
     } catch (e) {
