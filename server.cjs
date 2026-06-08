@@ -438,20 +438,12 @@ async function initializeDatabase() {
       profession TEXT,
       professionalTitle TEXT,
       desiredTracks TEXT, -- JSON string array
-      surplusSkills TEXT, -- JSON string array
       submittedAt TEXT NOT NULL,
       role TEXT DEFAULT 'user',
       level TEXT DEFAULT 'Graduate Node',
       points INTEGER DEFAULT 10
     );
   `);
-  try {
-    await db.exec("ALTER TABLE users ADD COLUMN surplusSkills TEXT DEFAULT '[]';");
-  } catch (e) {
-    if (!String(e?.message || e).includes("duplicate column")) {
-      throw e;
-    }
-  }
   await db.exec(`
     CREATE TABLE IF NOT EXISTS courses (
       id TEXT PRIMARY KEY,
@@ -525,8 +517,7 @@ async function initializeDatabase() {
         neighborhood: "Rototuna North",
         profession: "Senior Firmware Architect",
         professionalTitle: "Director of Embedded Robotics",
-        desiredTracks: JSON.stringify(["Mentor_Track", "Growth_Track"]),
-        surplusSkills: JSON.stringify(["Outputs_Professional", "Outputs_Space"]),
+        desiredTracks: JSON.stringify(["Mentor", "Growth"]),
         submittedAt: "2026-06-01T10:44:00Z",
         role: "user",
         level: "Silicon Expert Node",
@@ -542,8 +533,7 @@ async function initializeDatabase() {
         neighborhood: "Bloomsbury",
         profession: "Mathematical Computing Lecturer",
         professionalTitle: "Research Fellow, UCL Knowledge Lab",
-        desiredTracks: JSON.stringify(["Growth_Track", "Prosumer_Track"]),
-        surplusSkills: JSON.stringify(["Outputs_Mentoring", "Outputs_Professional"]),
+        desiredTracks: JSON.stringify(["Growth", "Prosumer"]),
         submittedAt: "2026-06-02T14:12:30Z",
         role: "user",
         level: "Academic Research Leader Node",
@@ -559,8 +549,7 @@ async function initializeDatabase() {
         neighborhood: "Nanshan Tech Park",
         profession: "AI Hardware Student Maker",
         professionalTitle: "Youth Lead Team Lead",
-        desiredTracks: JSON.stringify(["Mentee_Track", "Mentor_Track"]),
-        surplusSkills: JSON.stringify(["Outputs_Mentoring", "Outputs_Cross_Support"]),
+        desiredTracks: JSON.stringify(["Mentee", "Mentor"]),
         submittedAt: "2026-06-02T22:15:22Z",
         role: "user",
         level: "Junior STEM Maker Node",
@@ -569,9 +558,9 @@ async function initializeDatabase() {
     ];
     for (const u of sampleUsers) {
       await db.run(
-        `INSERT INTO users (id, fullName, email, password, country, city, neighborhood, profession, professionalTitle, desiredTracks, surplusSkills, submittedAt, role, level, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [u.id, u.fullName, u.email, u.password, u.country, u.city, u.neighborhood, u.profession, u.professionalTitle, u.desiredTracks, u.surplusSkills, u.submittedAt, u.role, u.level, u.points]
+        `INSERT INTO users (id, fullName, email, password, country, city, neighborhood, profession, professionalTitle, desiredTracks, submittedAt, role, level, points)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [u.id, u.fullName, u.email, u.password, u.country, u.city, u.neighborhood, u.profession, u.professionalTitle, u.desiredTracks, u.submittedAt, u.role, u.level, u.points]
       );
     }
   }
@@ -611,6 +600,16 @@ async function queueEmail(toEmail, subject, content) {
 async function startServer() {
   await initializeDatabase();
   const app = (0, import_express.default)();
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    res.header("Access-Control-Allow-Origin", typeof origin === "string" ? origin : "*");
+    res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+    next();
+  });
   app.use(import_express.default.json());
   app.post("/api/login", async (req, res) => {
     const { email = "", password = "" } = req.body || {};
@@ -624,8 +623,7 @@ async function startServer() {
       }
       const resUser = {
         ...user,
-        desiredTracks: safeJsonArray(user.desiredTracks),
-        surplusSkills: safeJsonArray(user.surplusSkills)
+        desiredTracks: safeJsonArray(user.desiredTracks)
       };
       res.json(resUser);
     } catch (e) {
@@ -663,14 +661,13 @@ async function startServer() {
       const cleanProfession = String(profession).trim();
       const cleanProfessionalTitle = String(professionalTitle).trim() || "STEM Participant";
       const cleanDesiredTracks = Array.isArray(desiredTracks) ? desiredTracks : [];
-      const cleanSurplusSkills = Array.isArray(surplusSkills) ? surplusSkills : [];
       const id = "cf-" + Date.now();
       const defaultPassword = emailLower.split("@")[0] || "password123";
       const submittedAt = (/* @__PURE__ */ new Date()).toISOString();
       let level = "Graduate Node Member";
       await db.run(
-        `INSERT INTO users (id, fullName, email, password, country, city, neighborhood, profession, professionalTitle, desiredTracks, surplusSkills, submittedAt, role, level, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO users (id, fullName, email, password, country, city, neighborhood, profession, professionalTitle, desiredTracks, submittedAt, role, level, points)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           cleanFullName,
@@ -682,7 +679,6 @@ async function startServer() {
           cleanProfession,
           cleanProfessionalTitle,
           JSON.stringify(cleanDesiredTracks),
-          JSON.stringify(cleanSurplusSkills),
           submittedAt,
           "user",
           level,
@@ -692,8 +688,7 @@ async function startServer() {
       const registeredUser = await db.get("SELECT * FROM users WHERE id = ?", [id]);
       const responseUser = {
         ...registeredUser,
-        desiredTracks: safeJsonArray(registeredUser?.desiredTracks),
-        surplusSkills: safeJsonArray(registeredUser?.surplusSkills)
+        desiredTracks: safeJsonArray(registeredUser?.desiredTracks)
       };
       await queueEmail(
         emailLower,
@@ -729,8 +724,7 @@ async function startServer() {
       const updatedUser = await db.get("SELECT * FROM users WHERE id = ?", [id]);
       const resUser = {
         ...updatedUser,
-        desiredTracks: safeJsonArray(updatedUser?.desiredTracks),
-        surplusSkills: safeJsonArray(updatedUser?.surplusSkills)
+        desiredTracks: safeJsonArray(updatedUser?.desiredTracks)
       };
       res.json(resUser);
     } catch (e) {
@@ -742,8 +736,7 @@ async function startServer() {
       const users = await db.all("SELECT * FROM users ORDER BY submittedAt DESC");
       const parsedUsers = users.map((u) => ({
         ...u,
-        desiredTracks: safeJsonArray(u?.desiredTracks),
-        surplusSkills: safeJsonArray(u?.surplusSkills)
+        desiredTracks: safeJsonArray(u?.desiredTracks)
       }));
       res.json(parsedUsers);
     } catch (e) {
