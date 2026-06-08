@@ -411,6 +411,16 @@ var staticEvents = [
   }
 ];
 var db;
+function safeJsonArray(value, fallback = []) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
 async function initializeDatabase() {
   db = await open({
     filename: DB_FILE
@@ -596,9 +606,9 @@ async function startServer() {
   const app = (0, import_express.default)();
   app.use(import_express.default.json());
   app.post("/api/login", async (req, res) => {
-    const { email, password } = req.body;
+    const { email = "", password = "" } = req.body || {};
     try {
-      const user = await db.get("SELECT * FROM users WHERE email = ? COLLATE NOCASE", [email.trim()]);
+      const user = await db.get("SELECT * FROM users WHERE email = ? COLLATE NOCASE", [String(email).trim()]);
       if (!user) {
         return res.status(401).json({ error: "Invalid Email Address." });
       }
@@ -607,8 +617,8 @@ async function startServer() {
       }
       const resUser = {
         ...user,
-        desiredTracks: JSON.parse(user.desiredTracks || "[]"),
-        surplusSkills: JSON.parse(user.surplusSkills || "[]")
+        desiredTracks: safeJsonArray(user.desiredTracks),
+        surplusSkills: safeJsonArray(user.surplusSkills)
       };
       res.json(resUser);
     } catch (e) {
@@ -632,7 +642,7 @@ async function startServer() {
       if (!emailLower) {
         return res.status(400).json({ error: "Email is required." });
       }
-      const cleanFullName = String(fullName || "").trim();
+      const cleanFullName = String(fullName).trim();
       if (!cleanFullName) {
         return res.status(400).json({ error: "Full name is required." });
       }
@@ -640,11 +650,11 @@ async function startServer() {
       if (existing) {
         return res.status(409).json({ error: "Email already registered in system." });
       }
-      const cleanCountry = String(country || "").trim();
-      const cleanCity = String(city || "").trim();
-      const cleanNeighborhood = String(neighborhood || "").trim();
-      const cleanProfession = String(profession || "").trim();
-      const cleanProfessionalTitle = String(professionalTitle || "").trim() || "STEM Participant";
+      const cleanCountry = String(country).trim();
+      const cleanCity = String(city).trim();
+      const cleanNeighborhood = String(neighborhood).trim();
+      const cleanProfession = String(profession).trim();
+      const cleanProfessionalTitle = String(professionalTitle).trim() || "STEM Participant";
       const cleanDesiredTracks = Array.isArray(desiredTracks) ? desiredTracks : [];
       const cleanSurplusSkills = Array.isArray(surplusSkills) ? surplusSkills : [];
       const id = "cf-" + Date.now();
@@ -679,34 +689,17 @@ async function startServer() {
           15
         ]
       );
-      const mailContent = `
-Hello ${cleanFullName}! 
-
-Welcome to the YVIA Decentralized Cooperative STEM Grid Network (YVIA HUB 2.0). 
-Your nodes have successfully joined our matching mesh coordinate.
-
-Here are your initial ingress credentials:
-\u2022 Identifier/Username: ${emailLower}
-\u2022 Default Security Passphrase: ${defaultPassword}
-
-\u26A0\uFE0F ACTION REQUIRED: To protect your network credentials from unauthorized tampering, please log in to your YVIA Hub profile portal (https://ai.studio/build), open the "Profile & Security settings" panel, and IMMEDIATELY modify your default passphrase.
-
-Ecosystem Assignment:
-\u2022 Calculated Role Level: ${level}
-\u2022 Base Grid Power: 15 Gp
-
-We are incredibly excited to bring high-tier hardware integration to your neighborhood.
-
-Best wishes,
-YVIA Core Infrastructure Automation Agent
-      `.trim();
-      await queueEmail(emailLower, "Welcome to YVIA Grid! [Credentials Security Notice]", mailContent);
       const registeredUser = await db.get("SELECT * FROM users WHERE id = ?", [id]);
       const responseUser = {
         ...registeredUser,
-        desiredTracks: JSON.parse(registeredUser.desiredTracks || "[]"),
-        surplusSkills: JSON.parse(registeredUser.surplusSkills || "[]")
+        desiredTracks: safeJsonArray(registeredUser?.desiredTracks),
+        surplusSkills: safeJsonArray(registeredUser?.surplusSkills)
       };
+      await queueEmail(
+        emailLower,
+        "Welcome to YVIA Grid! [Credentials Security Notice]",
+        `Hello ${cleanFullName}! Your account has been created. Username: ${emailLower}, Default passphrase: ${defaultPassword}`.trim()
+      );
       res.status(201).json(responseUser);
     } catch (e) {
       console.error("Crash in custom registration endpoint:", e);
@@ -725,19 +718,19 @@ YVIA Core Infrastructure Automation Agent
          SET fullName = ?, neighborhood = ?, profession = ?, professionalTitle = ?, password = ?
          WHERE id = ?`,
         [
-          String(fullName || "").trim(),
-          String(neighborhood || "").trim(),
-          String(profession || "").trim(),
-          String(professionalTitle || "").trim(),
-          String(password || "").trim(),
+          String(fullName).trim(),
+          String(neighborhood).trim(),
+          String(profession).trim(),
+          String(professionalTitle).trim(),
+          String(password).trim(),
           id
         ]
       );
       const updatedUser = await db.get("SELECT * FROM users WHERE id = ?", [id]);
       const resUser = {
         ...updatedUser,
-        desiredTracks: JSON.parse(updatedUser.desiredTracks || "[]"),
-        surplusSkills: JSON.parse(updatedUser.surplusSkills || "[]")
+        desiredTracks: safeJsonArray(updatedUser?.desiredTracks),
+        surplusSkills: safeJsonArray(updatedUser?.surplusSkills)
       };
       res.json(resUser);
     } catch (e) {
@@ -749,8 +742,8 @@ YVIA Core Infrastructure Automation Agent
       const users = await db.all("SELECT * FROM users ORDER BY submittedAt DESC");
       const parsedUsers = users.map((u) => ({
         ...u,
-        desiredTracks: JSON.parse(u.desiredTracks || "[]"),
-        surplusSkills: JSON.parse(u.surplusSkills || "[]")
+        desiredTracks: safeJsonArray(u?.desiredTracks),
+        surplusSkills: safeJsonArray(u?.surplusSkills)
       }));
       res.json(parsedUsers);
     } catch (e) {
@@ -762,8 +755,8 @@ YVIA Core Infrastructure Automation Agent
       const courses = await db.all("SELECT * FROM courses");
       const parsed = courses.map((c) => ({
         ...c,
-        keyConcepts: JSON.parse(c.keyConcepts || "[]"),
-        images: JSON.parse(c.images || "[]"),
+        keyConcepts: safeJsonArray(c.keyConcepts),
+        images: safeJsonArray(c.images),
         approved: c.approved === 1
       }));
       res.json(parsed);
@@ -791,7 +784,7 @@ YVIA Core Infrastructure Automation Agent
       const events = await db.all(query);
       const parsed = events.map((e) => ({
         ...e,
-        images: JSON.parse(e.images || "[]"),
+        images: safeJsonArray(e.images),
         approved: e.approved === 1,
         attendeeCount: e.attendeeCount || 0
       }));
@@ -989,7 +982,7 @@ YVIA Core Infrastructure Automation Agent
           description: item.description,
           descriptionZh: item.descriptionZh,
           targetAudience: item.targetAudience,
-          images: JSON.stringify(item.images),
+          images: safeJsonArray(item.images),
           // stringified so component can handle consistently if parsed
           approved: item.approved === 1,
           submissionStatus: item.submissionStatus
